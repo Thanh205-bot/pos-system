@@ -1,0 +1,20 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  # Thu thập chỉ số từ máy chủ Prometheus
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Thu thập chỉ số từ Node.js App (Metrics ứng dụng & HTTP)
+  - job_name: 'pos-app'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['app:3000']
+
+  # Thu thập chỉ số tài nguyên và truy vấn MySQL
+  - job_name: 'mysql'
+    static_configs:
+      - targets: ['mysql_exporter:9104']
