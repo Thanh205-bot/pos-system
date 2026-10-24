@@ -1,48 +1,55 @@
 ﻿services:
+  # 1. Cơ sở dữ liệu MySQL
   db:
     image: mysql:8.0
     container_name: pos_db
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: rootpassword123
+      MYSQL_DATABASE: pos_db
+      MYSQL_USER: pos_user
+      MYSQL_PASSWORD: pos_password_123
     volumes:
       - mysql_data:/var/lib/mysql
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
-      - pos-network
+      - pos_network
+  
 
+  # 2. Ứng dụng Backend Web POS (Node.js)
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: pos_app
+    restart: always
+    environment:
+      PORT: 3000
+      DB_HOST: db
+      DB_USER: pos_user
+      DB_PASSWORD: pos_password_123
+      DB_NAME: pos_db
+    depends_on:
+      - db
+    networks:
+      - pos_network
+
+  # 3. Quản trị CSDL phpMyAdmin
   phpmyadmin:
     image: phpmyadmin:latest
     container_name: pos_phpmyadmin
     restart: always
+    ports:
+      - "8080:80"
     environment:
       PMA_HOST: db
-      PMA_PORT: 3306
-    ports:
-      - "${PMA_PORT}:80"
+      MYSQL_ROOT_PASSWORD: rootpassword123
     depends_on:
       - db
     networks:
-      - pos-network
+      - pos_network
 
-  app:
-    build: ./app
-    container_name: pos_app
-    restart: always
-    environment:
-      PORT: ${PORT}
-      DB_HOST: db
-      DB_USER: ${MYSQL_USER}
-      DB_PASSWORD: ${MYSQL_PASSWORD}
-      DB_NAME: ${MYSQL_DATABASE}
-    depends_on:
-      - db
-    networks:
-      - pos-network
-
+  # 4. Nginx Reverse Proxy (HTTPS Cổng 443)
   nginx:
     image: nginx:alpine
     container_name: pos_nginx
@@ -52,15 +59,76 @@
       - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./ssl:/etc/nginx/ssl:ro
     depends_on:
       - app
     networks:
-      - pos-network
+      - pos_network
+
+  # 5. Prometheus - Thu thập chỉ số hiệu năng
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: pos_prometheus
+    restart: always
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - pos_network
+
+ # 6. MySQL Exporter
+  mysql_exporter:
+    image: prom/mysqld-exporter:latest
+    container_name: pos_mysql_exporter
+    restart: always
+    command:
+      - '--mysqld.address=db:3306'
+      - '--mysqld.username=pos_user:pos_password_123'
+      - '--collect.global_status'
+      - '--collect.info_schema.innodb_metrics'
+      - '--no-collect.info_schema.tables'
+    depends_on:
+      - db
+    networks:
+      - pos_network
+
+  # 7. Grafana - Trực quan hóa Dashboard
+  grafana:
+    image: grafana/grafana:latest
+    container_name: pos_grafana
+    restart: always
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - pos_network
+  # 8. Loki - Thu thập và lưu trữ Logs
+  loki:
+    image: grafana/loki:latest
+    container_name: pos_loki
+    restart: always
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - pos_network
+
+networks:
+  pos_network:
+    driver: bridge
 
 volumes:
   mysql_data:
-
-networks:
-  pos-network:
-    driver: bridge
+  prometheus_data:
+  grafana_data:
